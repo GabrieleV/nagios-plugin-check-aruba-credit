@@ -1,0 +1,114 @@
+#!/usr/bin/php
+<?php
+
+//****** Aruba Cloud Computing Simple Connect
+//****** Based on the original work of:
+//****** 12/03/2012 - 23:49 GMT+1
+//****** Author: Andrea Mancini - biso@biso.it
+//****** Thanks to bhargav.khatana@gmail.com and tommasoinnocenti@inwind.it
+
+class clsWSSEAuth {
+    private $Username;
+    private $Password;
+    function __construct($username, $password) {
+        $this->Username=$username;
+        $this->Password=$password;
+    }
+}
+
+class clsWSSEToken {
+    private $UsernameToken;
+    function __construct ($innerVal){
+        $this->UsernameToken = $innerVal;
+    }
+}
+
+function ACC_Connect($username, $password) {
+
+    $strWSSENS  = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd";
+    $API        = "https://api.dc1.computing.cloud.it/WsEndUser/v2.9/WsEndUser.svc"; //control the right version of API
+    $WSDL       = $API."?wsdl";
+    $location   = $API."/soap11"; // we must use SOAP 1.1 with PHP
+
+    $objSoapVarUser = new SoapVar($username, XSD_STRING, NULL, $strWSSENS, NULL, $strWSSENS);
+    $objSoapVarPass = new SoapVar($password, XSD_STRING, NULL, $strWSSENS, NULL, $strWSSENS);
+    
+    $objWSSEAuth = new clsWSSEAuth($objSoapVarUser, $objSoapVarPass);
+    $objSoapVarWSSEAuth = new SoapVar($objWSSEAuth, SOAP_ENC_OBJECT, NULL, $strWSSENS, 'UsernameToken', $strWSSENS);
+    $objWSSEToken = new clsWSSEToken($objSoapVarWSSEAuth);
+    $objSoapVarWSSEToken = new SoapVar($objWSSEToken, SOAP_ENC_OBJECT, NULL, $strWSSENS, 'UsernameToken', $strWSSENS);
+    $objSoapVarHeaderVal=new SoapVar($objSoapVarWSSEToken, SOAP_ENC_OBJECT, NULL, $strWSSENS, 'Security', $strWSSENS);
+    $objSoapVarWSSEHeader = new SoapHeader($strWSSENS, 'Security', $objSoapVarHeaderVal,true, SOAP_ACTOR_NONE);
+    
+    $objClient = new SoapClient($WSDL, array('trace'=>1,'soap_version'=>SOAP_1_1,'location'=>$location));
+    $objClient->__setSoapHeaders(array($objSoapVarWSSEHeader));
+    
+    return $objClient;
+}
+
+$args = getopt("u:p:w:c:");
+
+#var_dump($args);
+
+$username = @$args["u"] ?: "NOUSERNAME";
+$password = @$args["p"] ?: "NOPASSWORD";
+
+$warning = @$args["w"] ?: "NOWARNING";
+$critical = @$args["c"] ?: "NOCRITICAL";
+
+$objClient = ACC_Connect($username, $password);
+
+    try
+    {
+        $objResponse = $objClient->GetCredit();
+    }
+    catch (SoapFault $E)
+    {
+        print "UNKNOWN - Cannot get credit.\n";
+        exit(3);
+    }
+
+// var_dump($objResponse);
+
+/*
+object(stdClass)#10 (1) {
+  ["GetCreditResult"]=>
+  object(stdClass)#11 (5) {
+    ["ExceptionInfo"]=>
+    NULL
+    ["ResultCode"]=>
+    int(0)
+    ["ResultMessage"]=>
+    NULL
+    ["Success"]=>
+    bool(true)
+    ["Value"]=>
+    object(stdClass)#12 (2) {
+      ["OverdraftLimit"]=>
+      string(1) "0"
+      ["Value"]=>
+      string(11) "27.72700000"
+    }
+  }
+}
+*/
+
+$credit=round( (float)$objResponse->GetCreditResult->Value->Value, 2);
+
+switch ($credit) {
+        case ($credit > $warning):
+        print "OK - Credit is $credit EUR.\n";
+        exit(0);
+
+        case ($credit < $critical):
+        print "CRITICAL - Credit is $credit EUR.\n";
+        exit(2);
+
+        case ($credit < $warning):
+        print "WARNING - Credit is $credit EUR.\n";
+        exit(1);
+
+        default:
+        print "UNKNOWN - Cannot get credit.\n";
+        exit(3);
+}
